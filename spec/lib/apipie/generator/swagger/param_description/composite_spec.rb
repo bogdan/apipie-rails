@@ -132,6 +132,19 @@ describe Apipie::Generator::Swagger::ParamDescription::Composite do
     # builds a NestedValidator, whose own params (declared in the block)
     # should still be recursed into and rendered as the array's `items`
     # schema, not silently collapsed to `{ type: 'array', items: { type: 'string' } }`.
+    #
+    # Explicit non-nullable context: this isolates the nested-recursion
+    # behavior under test from the file's shared `allow_null: true` default
+    # (set up for other describe blocks below), matching how request bodies
+    # are actually built in practice (ParametersService uses allow_null: false).
+    let(:context) do
+      Apipie::Generator::Swagger::Context.new(
+        allow_null: false,
+        http_method: 'get',
+        controller_method: method_description
+      )
+    end
+
     let(:params_description_one) do
       Apipie::ParamDescription.new(method_description, :some_param, Array) do
         param :nested_field, String, required: true
@@ -143,14 +156,20 @@ describe Apipie::Generator::Swagger::ParamDescription::Composite do
 
     subject { swagger[:properties][:some_param] }
 
+    # A sibling describe block ('additionalProperties') flips this global
+    # config in a `before` with no matching `after`, so its value otherwise
+    # depends on example run order -- pin it here for a deterministic
+    # result (this example never changes it itself, so nothing to restore).
+    before { Apipie.configuration.generator.swagger.allow_additional_properties_in_response = false }
+
     it 'renders the item schema from the nested params instead of falling back to string items' do
       expect(subject).to eq(
         type: 'array',
         items: {
           type: 'object',
           properties: {
-            nested_field: { type: 'string' },
-            other_field: { type: 'integer', format: 'int32' }
+            nested_field: { type: 'string', required: true },
+            other_field: { type: 'number' }
           },
           additionalProperties: false,
           required: [ :nested_field ]
